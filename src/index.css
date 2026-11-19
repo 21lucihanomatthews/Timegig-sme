@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/* Hide Leaflet OpenStreetMap attribution */
+.leaflet-control-attribution {
+  display: none !important;
+}
+
+/* White zoom and custom controls styling */
+.leaflet-control-zoom {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 1rem !important;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1) !important;
+}
+
+.leaflet-control-zoom a {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: #f8fafc !important;
+  color: #2563eb !important;
+}
+
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.15);
+}
+
+@keyframes float3dA {
+  0%, 100% {
+    transform: perspective(700px) translate3d(0px, 0px, 0px) rotateX(14deg) rotateY(-18deg) rotateZ(-8deg);
+  }
+  50% {
+    transform: perspective(700px) translate3d(8px, -16px, 24px) rotateX(22deg) rotateY(-8deg) rotateZ(4deg);
+  }
+}
+
+@keyframes float3dB {
+  0%, 100% {
+    transform: perspective(700px) translate3d(0px, 0px, 0px) rotateX(-12deg) rotateY(16deg) rotateZ(10deg);
+  }
+  50% {
+    transform: perspective(700px) translate3d(-10px, 14px, 20px) rotateX(-20deg) rotateY(6deg) rotateZ(-5deg);
+  }
+}
+
+@keyframes float3dC {
+  0%, 100% {
+    transform: perspective(700px) translate3d(0px, 0px, 0px) rotateX(16deg) rotateY(14deg) rotateZ(5deg);
+  }
+  50% {
+    transform: perspective(700px) translate3d(10px, -12px, 18px) rotateX(8deg) rotateY(24deg) rotateZ(14deg);
+  }
+}
+
+.animate-float-3d-a {
+  animation: float3dA 7.5s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+.animate-float-3d-b {
+  animation: float3dB 9s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+.animate-float-3d-c {
+  animation: float3dC 8.2s ease-in-out infinite;
+  transform-style: preserve-3d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-3d-a,
+  .animate-float-3d-b,
+  .animate-float-3d-c {
+    animation: none;
+  }
+}

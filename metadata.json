@@ -1,0 +1,6 @@
+{
+  "name": "TimeGiG",
+  "description": "Interactive OpenStreetMap platform for gigs, service seekers, businesses, and tiered subscriptions.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

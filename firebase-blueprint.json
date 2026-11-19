@@ -1,0 +1,371 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and referral hierarchy attribution",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user ID matching auth.uid" },
+        "email": { "type": "string", "description": "User email address" },
+        "firstName": { "type": "string", "description": "First name" },
+        "lastName": { "type": "string", "description": "Last name" },
+        "location": { "type": "string", "description": "User location" },
+        "contactPhone": { "type": "string", "description": "User contact phone or WhatsApp information" },
+        "workTrade": { "type": "string", "description": "Primary work trade or casual gig category" },
+        "tradeExperience": { "type": "string", "description": "At least one work experience supporting the user's trade" },
+        "tradeReference": { "type": "string", "description": "At least one verifiable reference supporting the user's trade" },
+        "avatar": { "type": ["string", "null"], "description": "Compressed user face selfie avatar data URL" },
+        "subscriptionTier": { "type": "string", "enum": ["none", "tenant", "user", "company"], "description": "Selected subscription tier" },
+        "subscriptionStatus": { "type": "string", "enum": ["none", "pending", "approved", "rejected", "frozen"], "description": "Subscription approval status" },
+        "isMainTenant": { "type": "boolean", "description": "True only for timegig2026@gmail.com" },
+        "referralCode": { "type": "string", "description": "User's shareable referral code" },
+        "referredByCode": { "type": "string", "description": "Referral code used when joining" },
+        "referredByUid": { "type": "string", "description": "UID of the direct referrer" },
+        "referredByTier": { "type": "string", "enum": ["main_tenant", "tenant", "user"], "description": "Tier of the direct referrer" },
+        "uplineTenantEmail": { "type": "string", "description": "Email of the tenant who receives referrals from this user (timegig2026@gmail.com for main tenant or user-sub downstream)" },
+        "uplineTenantUid": { "type": "string", "description": "UID of the direct referral tenant when referred by a referral tenant" },
+        "trialStartedAt": { "type": "number", "description": "Epoch timestamp when referral free trial was activated" },
+        "trialEndsAt": { "type": "number", "description": "Epoch timestamp when referral free trial expires" },
+        "termsAcceptedAt": { "type": "number", "description": "Epoch timestamp when user accepted Terms and Conditions on signup" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["uid", "email", "referralCode", "createdAt"]
+    },
+    "ReferralLink": {
+      "title": "ReferralLink",
+      "description": "Public non-PII referral code mapping and tenant offer configuration for routing referrals",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "Unique referral code" },
+        "ownerUid": { "type": "string", "description": "UID of the user who owns this referral link" },
+        "ownerTier": { "type": "string", "enum": ["main_tenant", "tenant", "user"], "description": "Active tier of the link owner" },
+        "displayName": { "type": "string", "description": "Non-PII display label for the referrer" },
+        "tenantFee": { "type": "number", "description": "Configured monthly Tenant Sub fee in ZAR" },
+        "userFee": { "type": "number", "description": "Configured monthly User Sub fee in ZAR" },
+        "companyFee": { "type": "number", "description": "Configured monthly Company Sub fee in ZAR" },
+        "trialDays": { "type": "number", "description": "Configured free trial days for new Tenant/User referrals" },
+        "companyTrialDays": { "type": "number", "description": "Configured free trial days for new Company referrals" },
+        "maxTenantSignups": { "type": "number", "description": "Maximum allowed Tenant Sub signups (0 = unlimited)" },
+        "maxUserSignups": { "type": "number", "description": "Maximum allowed User Sub signups (0 = unlimited)" },
+        "maxCompanySignups": { "type": "number", "description": "Maximum allowed Company Sub signups (defaults to 10 for referral tenants; 0 = unlimited for main tenant)" },
+        "currentTenantSignups": { "type": "number", "description": "Current count of active/pending Tenant Sub signups" },
+        "currentUserSignups": { "type": "number", "description": "Current count of active/pending User Sub signups" },
+        "currentCompanySignups": { "type": "number", "description": "Current count of active/pending Company Sub signups" },
+        "bankName": { "type": "string", "description": "Tenant bank name for EFT transfers" },
+        "bankAccountHolder": { "type": "string", "description": "Tenant bank account holder name" },
+        "bankAccountNumber": { "type": "string", "description": "Tenant bank account number" },
+        "bankBranchCode": { "type": "string", "description": "Tenant bank branch or universal code" },
+        "bankReferenceNote": { "type": "string", "description": "Payment reference instructions for EFT transfers" },
+        "approvalHoursEnabled": { "type": "boolean", "description": "Whether approving submitted submissions is restricted to tenant working hours" },
+        "approvalHoursStart": { "type": "string", "description": "Working hours start time in 24h HH:MM format" },
+        "approvalHoursEnd": { "type": "string", "description": "Working hours end time in 24h HH:MM format" },
+        "approvalWorkingDays": { "type": "string", "description": "Comma-separated weekday indices (0=Sun..6=Sat) when tenant approves submissions" },
+        "createdAt": { "type": ["string", "number"], "description": "Creation timestamp" },
+        "ownerEmail": { "type": "string", "description": "Link owner email address" },
+        "email": { "type": "string", "description": "Link owner email address" },
+        "id": { "type": "string", "description": "Unique link code or ID" },
+        "updatedAt": { "type": "number", "description": "Last update epoch timestamp" }
+      },
+      "required": ["code", "ownerUid", "ownerTier", "updatedAt"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "User verification and subscription submission routed to Main Tenant or Referral Tenant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Submission ID" },
+        "userId": { "type": "string", "description": "Submitting user ID" },
+        "userEmail": { "type": "string", "description": "User email" },
+        "userName": { "type": "string", "description": "User display name" },
+        "subType": { "type": "string", "enum": ["Tenant Sub (R299.99)", "User Sub (R29.99)", "Company Sub (R199.99)"], "description": "Subscription tier selected" },
+        "feeAmount": { "type": "number", "description": "Subscription fee amount configured by tenant at submission time" },
+        "selfie": { "type": ["string", "null"], "description": "Base64 selfie data" },
+        "idDoc": { "type": ["object", "null"], "description": "Uploaded ID document metadata and data URL" },
+        "popDoc": { "type": ["object", "null"], "description": "Uploaded proof of payment metadata and data URL" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "frozen"], "description": "Review status" },
+        "submittedAt": { "type": "number", "description": "Submission epoch timestamp" },
+        "expiresAt": { "type": "number", "description": "Approval expiration epoch timestamp" },
+        "referrerCode": { "type": "string", "description": "Referral code that originated this submission" },
+        "referrerUid": { "type": "string", "description": "UID of the direct referrer" },
+        "referrerTier": { "type": "string", "enum": ["main_tenant", "tenant", "user"], "description": "Tier of the referrer" },
+        "targetTenantEmail": { "type": "string", "description": "timegig2026@gmail.com when routed to Main Tenant (direct or via any User Sub); empty when routed to a Referral Tenant" },
+        "targetTenantUid": { "type": "string", "description": "UID of the Referral Tenant who owns and reviews this referral" },
+        "routingLabel": { "type": "string", "description": "Human-readable attribution routing explanation" }
+      },
+      "required": ["id", "userId", "userEmail", "userName", "subType", "status", "submittedAt", "referrerTier", "targetTenantEmail", "targetTenantUid"]
+    },
+    "Seeker": {
+      "title": "Seeker",
+      "description": "Public non-PII directory entry and offered service profile for Seekers view",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID matching auth.uid" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "location": { "type": "string", "description": "City or area location" },
+        "avatar": { "type": ["string", "null"], "description": "Optional compressed selfie avatar data URL" },
+        "tier": { "type": "string", "enum": ["tenant", "user", "company", "seeker"], "description": "Member tier" },
+        "status": { "type": "string", "enum": ["inactive", "active", "pending", "approved", "rejected", "frozen"], "description": "Account status" },
+        "serviceTitle": { "type": "string", "description": "Service offered by the seeker for hire" },
+        "serviceRate": { "type": "string", "description": "Service rate or fee label" },
+        "serviceDescription": { "type": "string", "description": "Brief description of the offered service" },
+        "workTrade": { "type": "string", "description": "Seeker's primary work trade" },
+        "tradeExperience": { "type": "string", "description": "Work experience supporting the trade" },
+        "tradeReference": { "type": "string", "description": "Reference supporting the trade" },
+        "offeringService": { "type": "boolean", "description": "Whether the seeker is currently offering services for hire" },
+        "lat": { "type": ["number", "null"], "description": "Seeker latitude" },
+        "lng": { "type": ["number", "null"], "description": "Seeker longitude" },
+        "updatedAt": { "type": "number", "description": "Last update epoch timestamp" }
+      },
+      "required": ["uid", "displayName", "tier", "status", "updatedAt"]
+    },
+    "Gig": {
+      "title": "Gig",
+      "description": "User-posted gig pinned at an exact map location",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Gig document ID" },
+        "ownerId": { "type": "string", "description": "UID of the user who created the gig" },
+        "ownerName": { "type": "string", "description": "Display name of the gig creator" },
+        "ownerAvatar": { "type": ["string", "null"], "description": "Face selfie thumbnail data URL of the gig creator" },
+        "title": { "type": "string", "description": "Gig title" },
+        "description": { "type": "string", "description": "Gig details" },
+        "pay": { "type": "string", "description": "Offered compensation or budget" },
+        "category": { "type": "string", "description": "Gig category" },
+        "lat": { "type": "number", "description": "Exact latitude chosen by owner" },
+        "lng": { "type": "number", "description": "Exact longitude chosen by owner" },
+        "locationName": { "type": "string", "description": "Human-readable address or coordinates label" },
+        "gigDate": { "type": "string", "description": "Scheduled gig date (YYYY-MM-DD)" },
+        "gigTime": { "type": "string", "description": "Scheduled gig time (HH:MM)" },
+        "requireIdDoc": { "type": "boolean", "description": "Whether the gig owner requires applicants to submit an ID document" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" },
+        "updatedAt": { "type": "number", "description": "Last update epoch timestamp" }
+      },
+      "required": ["id", "ownerId", "ownerName", "title", "description", "pay", "lat", "lng", "createdAt", "updatedAt"]
+    },
+    "GigEngagement": {
+      "title": "GigEngagement",
+      "description": "Unique view or interest record on a gig post",
+      "type": "object",
+      "properties": {
+        "gigId": { "type": "string", "description": "Target gig document ID" },
+        "userId": { "type": "string", "description": "UID of viewing or interested user" },
+        "createdAt": { "type": "number", "description": "Epoch timestamp" }
+      },
+      "required": ["gigId", "userId", "createdAt"]
+    },
+    "Hire": {
+      "title": "Hire",
+      "description": "Real-time hire workflow between a User and a Seeker with navigation, completion rating, and mutual cancellation reason",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Hire request ID" },
+        "userId": { "type": "string", "description": "UID of the hiring user" },
+        "userName": { "type": "string", "description": "Display name of the hiring user" },
+        "seekerId": { "type": "string", "description": "UID of the hired seeker" },
+        "seekerName": { "type": "string", "description": "Display name of the hired seeker" },
+        "serviceTitle": { "type": "string", "description": "Service being hired" },
+        "serviceRate": { "type": "string", "description": "Service rate" },
+        "seekerLat": { "type": "number", "description": "Seeker starting/current latitude" },
+        "seekerLng": { "type": "number", "description": "Seeker starting/current longitude" },
+        "destLat": { "type": "number", "description": "User destination latitude" },
+        "destLng": { "type": "number", "description": "User destination longitude" },
+        "destAddress": { "type": "string", "description": "User destination address" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "completed", "cancelled"], "description": "Hire lifecycle status" },
+        "rating": { "type": ["number", "null"], "description": "Star rating (1-5) given by hiring user on completion" },
+        "ratingComment": { "type": "string", "description": "Optional review comment" },
+        "cancelReason": { "type": "string", "description": "Mandatory reason when cancelled by user or seeker" },
+        "cancelledBy": { "type": ["string", "null"], "enum": ["user", "seeker", null], "description": "Party that cancelled the gig" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" },
+        "acceptedAt": { "type": ["number", "null"], "description": "Acceptance epoch timestamp" },
+        "completedAt": { "type": ["number", "null"], "description": "Completion epoch timestamp" },
+        "cancelledAt": { "type": ["number", "null"], "description": "Cancellation epoch timestamp" }
+      },
+      "required": ["id", "userId", "userName", "seekerId", "seekerName", "serviceTitle", "seekerLat", "seekerLng", "destLat", "destLng", "destAddress", "status", "createdAt"]
+    },
+    "HireMessage": {
+      "title": "HireMessage",
+      "description": "Real-time navigation chat message between hiring user and seeker",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID" },
+        "hireId": { "type": "string", "description": "Parent hire ID" },
+        "userId": { "type": "string", "description": "UID of the hiring user" },
+        "seekerId": { "type": "string", "description": "UID of the seeker" },
+        "senderId": { "type": "string", "description": "UID of the message sender" },
+        "senderName": { "type": "string", "description": "Display name of the message sender" },
+        "senderAvatar": { "type": ["string", "null"], "description": "Optional selfie avatar thumbnail" },
+        "text": { "type": "string", "description": "Message text" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" }
+      },
+      "required": ["id", "hireId", "userId", "seekerId", "senderId", "senderName", "text", "createdAt"]
+    },
+    "SeekerRating": {
+      "title": "SeekerRating",
+      "description": "Verified star rating tied to a completed hire",
+      "type": "object",
+      "properties": {
+        "hireId": { "type": "string", "description": "Completed hire document ID" },
+        "seekerId": { "type": "string", "description": "Rated seeker UID" },
+        "userId": { "type": "string", "description": "Hiring user UID" },
+        "rating": { "type": "number", "description": "Star rating from 1 to 5" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" }
+      },
+      "required": ["hireId", "seekerId", "userId", "rating", "createdAt"]
+    },
+    "GigApplication": {
+      "title": "GigApplication",
+      "description": "Application submitted by an active non-tenant user to a posted gig",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Application document ID" },
+        "gigId": { "type": "string", "description": "Target gig document ID" },
+        "gigTitle": { "type": "string", "description": "Title of the gig" },
+        "gigOwnerId": { "type": "string", "description": "UID of the gig post owner" },
+        "applicantId": { "type": "string", "description": "UID of the applicant user (cannot be a tenant)" },
+        "applicantName": { "type": "string", "description": "Display name of the applicant" },
+        "applicantAvatar": { "type": ["string", "null"], "description": "Optional face selfie thumbnail of applicant" },
+        "workTrade": { "type": "string", "description": "Applicant work trade" },
+        "tradeExperience": { "type": "string", "description": "Applicant experience supporting their trade" },
+        "tradeReference": { "type": "string", "description": "Applicant reference supporting their trade" },
+        "idDoc": { "type": ["object", "null"], "description": "Optional ID document submitted by applicant when required by gig owner" },
+        "message": { "type": "string", "description": "Application note from the user" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"], "description": "Application decision status" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" }
+      },
+      "required": ["id", "gigId", "gigTitle", "gigOwnerId", "applicantId", "applicantName", "message", "status", "createdAt"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User-submitted app feedback routed to the Main Tenant inbox",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Feedback document ID" },
+        "userId": { "type": "string", "description": "UID of the submitting user" },
+        "userName": { "type": "string", "description": "Display name of the submitting user" },
+        "userEmail": { "type": "string", "description": "Email of the submitting user" },
+        "userTier": { "type": "string", "enum": ["main_tenant", "tenant", "user", "company", "none"], "description": "Subscription tier of the submitting user" },
+        "userAvatar": { "type": ["string", "null"], "description": "Face selfie thumbnail of the sender" },
+        "userLocation": { "type": "string", "description": "Location information of the sender" },
+        "userReferralCode": { "type": "string", "description": "Referral code of the sender" },
+        "userStatus": { "type": "string", "description": "Account status label of the sender" },
+        "message": { "type": "string", "description": "Feedback message content" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" },
+        "readByMainTenant": { "type": "boolean", "description": "Whether Main Tenant has read this feedback" },
+        "readAt": { "type": ["number", "null"], "description": "Epoch timestamp when Main Tenant read this feedback" },
+        "replyMessage": { "type": "string", "description": "Reply sent by Main Tenant to the tenant/user" },
+        "repliedAt": { "type": ["number", "null"], "description": "Epoch timestamp of Main Tenant reply" },
+        "repliedByUid": { "type": "string", "description": "UID of Main Tenant who replied" },
+        "repliedByName": { "type": "string", "description": "Display name of Main Tenant who replied" },
+        "repliedByAvatar": { "type": ["string", "null"], "description": "Face selfie thumbnail of Main Tenant who replied" }
+      },
+      "required": ["id", "userId", "userName", "userEmail", "userTier", "message", "createdAt"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "User or tenant business page pinned on the GiGs map with logo, backcover, hours, contact info, and reservations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Company document ID" },
+        "ownerId": { "type": "string", "description": "UID of the user or tenant who created the company page" },
+        "ownerName": { "type": "string", "description": "Display name of the company owner" },
+        "ownerAvatar": { "type": ["string", "null"], "description": "Face selfie thumbnail of the owner" },
+        "logoUrl": { "type": ["string", "null"], "description": "Uploaded company logo image data URL" },
+        "backcoverUrl": { "type": ["string", "null"], "description": "Uploaded company backcover banner image data URL" },
+        "name": { "type": "string", "description": "Company or business name" },
+        "category": { "type": "string", "description": "Company industry or category" },
+        "description": { "type": "string", "description": "Company services and details" },
+        "openTimes": { "type": "string", "description": "Business opening days and hours" },
+        "contact": { "type": "string", "description": "Business phone or contact information" },
+        "email": { "type": "string", "description": "Business email information" },
+        "website": { "type": "string", "description": "Company website URL" },
+        "acceptsReservations": { "type": "boolean", "description": "Whether users can book a reservation" },
+        "lat": { "type": "number", "description": "Exact company page latitude" },
+        "lng": { "type": "number", "description": "Exact company page longitude" },
+        "locationName": { "type": "string", "description": "Human-readable company address" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" },
+        "updatedAt": { "type": "number", "description": "Last update epoch timestamp" }
+      },
+      "required": ["id", "ownerId", "ownerName", "name", "description", "lat", "lng", "createdAt", "updatedAt"]
+    },
+    "CompanyReservation": {
+      "title": "CompanyReservation",
+      "description": "User reservation booking made on a Company Page",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Reservation document ID" },
+        "companyId": { "type": "string", "description": "Target Company Page ID" },
+        "companyName": { "type": "string", "description": "Target Company Page name" },
+        "companyOwnerId": { "type": "string", "description": "UID of the Company Page owner" },
+        "userId": { "type": "string", "description": "UID of the user booking the reservation" },
+        "userName": { "type": "string", "description": "Display name of the booking user" },
+        "userEmail": { "type": "string", "description": "Email of the booking user" },
+        "reservationDate": { "type": "string", "description": "Requested reservation date (YYYY-MM-DD)" },
+        "reservationTime": { "type": "string", "description": "Requested reservation time (HH:MM)" },
+        "guests": { "type": "string", "description": "Party size or booking quantity" },
+        "contactPhone": { "type": "string", "description": "Contact phone for the reservation" },
+        "notes": { "type": "string", "description": "Optional booking notes or requests" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "declined", "cancelled"], "description": "Reservation status" },
+        "createdAt": { "type": "number", "description": "Creation epoch timestamp" }
+      },
+      "required": ["id", "companyId", "companyName", "companyOwnerId", "userId", "userName", "userEmail", "reservationDate", "reservationTime", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user profiles and referral attribution"
+    },
+    "/referralLinks/{code}": {
+      "schema": { "$ref": "#/entities/ReferralLink" },
+      "description": "Maps referral codes to owner UID, tier, fees, trial days, and signup caps without PII"
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/Submission" },
+      "description": "Stores referral verification submissions scoped to target tenant"
+    },
+    "/seekers/{userId}": {
+      "schema": { "$ref": "#/entities/Seeker" },
+      "description": "Stores non-PII seeker profiles and offered services for Seekers view"
+    },
+    "/gigs/{gigId}": {
+      "schema": { "$ref": "#/entities/Gig" },
+      "description": "Stores user-created gigs pinned to exact map coordinates"
+    },
+    "/gigs/{gigId}/views/{viewerId}": {
+      "schema": { "$ref": "#/entities/GigEngagement" },
+      "description": "Tracks unique viewer engagement per gig post"
+    },
+    "/gigs/{gigId}/interests/{userId}": {
+      "schema": { "$ref": "#/entities/GigEngagement" },
+      "description": "Tracks user interest toggles per gig post"
+    },
+    "/companies/{companyId}": {
+      "schema": { "$ref": "#/entities/Company" },
+      "description": "Stores user/tenant company pages pinned to exact map coordinates"
+    },
+    "/companyReservations/{reservationId}": {
+      "schema": { "$ref": "#/entities/CompanyReservation" },
+      "description": "Stores reservation bookings created by users on Company Pages"
+    },
+    "/hires/{hireId}": {
+      "schema": { "$ref": "#/entities/Hire" },
+      "description": "Stores live hire requests, navigation coordinates, completion ratings, and cancellation reasons"
+    },
+    "/hires/{hireId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/HireMessage" },
+      "description": "Stores live navigation chat messages between hiring user and seeker"
+    },
+    "/seekerRatings/{hireId}": {
+      "schema": { "$ref": "#/entities/SeekerRating" },
+      "description": "Stores verified star ratings for seekers upon gig completion"
+    },
+    "/gigApplications/{appId}": {
+      "schema": { "$ref": "#/entities/GigApplication" },
+      "description": "Stores gig applications from non-tenant users"
+    },
+    "/feedback/{feedbackId}": {
+      "schema": { "$ref": "#/entities/Feedback" },
+      "description": "Stores user feedback visible to the Main Tenant and the submitting user, including Main Tenant replies and read status"
+    }
+  }
+}

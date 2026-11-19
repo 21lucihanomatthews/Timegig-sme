@@ -1,0 +1,1007 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isMainTenant() {
+      return isSignedIn() &&
+        request.auth.token.email == 'timegig2026@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string &&
+        id.size() >= 1 &&
+        id.size() <= 128 &&
+        id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function isValidDocObject(docObj) {
+      return docObj == null || (
+        docObj is map &&
+        docObj.keys().hasAll(['name', 'url', 'type']) &&
+        docObj.keys().hasOnly(['name', 'url', 'type', 'size']) &&
+        docObj.name is string && docObj.name.size() <= 255 &&
+        docObj.url is string && docObj.url.size() <= 900000 &&
+        docObj.type is string && docObj.type.size() <= 128 &&
+        (!('size' in docObj) || docObj.size is string)
+      );
+    }
+
+    function isValidUserPayload(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'referralCode', 'createdAt']) &&
+        data.keys().hasOnly([
+          'uid',
+          'email',
+          'firstName',
+          'lastName',
+          'location',
+          'contactPhone',
+          'workTrade',
+          'tradeExperience',
+          'tradeReference',
+          'avatar',
+          'subscriptionTier',
+          'subscriptionStatus',
+          'isMainTenant',
+          'referralCode',
+          'referredByCode',
+          'referredByUid',
+          'referredByTier',
+          'uplineTenantEmail',
+          'uplineTenantUid',
+          'trialStartedAt',
+          'trialEndsAt',
+          'termsAcceptedAt',
+          'createdAt'
+        ]) &&
+        data.uid is string && data.uid == userId &&
+        data.email is string && data.email.size() <= 320 &&
+        data.referralCode is string && isValidId(data.referralCode) &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        (!('firstName' in data) || (data.firstName is string && data.firstName.size() <= 120)) &&
+        (!('lastName' in data) || (data.lastName is string && data.lastName.size() <= 120)) &&
+        (!('location' in data) || (data.location is string && data.location.size() <= 300)) &&
+        (!('contactPhone' in data) || (data.contactPhone is string && data.contactPhone.size() <= 80)) &&
+        (!('workTrade' in data) || (data.workTrade is string && data.workTrade.size() <= 120)) &&
+        (!('tradeExperience' in data) || (data.tradeExperience is string && data.tradeExperience.size() <= 500)) &&
+        (!('tradeReference' in data) || (data.tradeReference is string && data.tradeReference.size() <= 300)) &&
+        (!('avatar' in data) || data.avatar == null || (data.avatar is string && data.avatar.size() <= 450000)) &&
+        (!('subscriptionTier' in data) || data.subscriptionTier in ['none', 'tenant', 'user', 'company']) &&
+        (!('subscriptionStatus' in data) || data.subscriptionStatus in ['none', 'pending', 'approved', 'rejected', 'frozen']) &&
+        (!('isMainTenant' in data) || data.isMainTenant == false || (data.isMainTenant == true && isMainTenant())) &&
+        (!('referredByCode' in data) || (data.referredByCode is string && data.referredByCode.size() <= 128)) &&
+        (!('referredByUid' in data) || (data.referredByUid is string && data.referredByUid.size() <= 128)) &&
+        (!('referredByTier' in data) || data.referredByTier in ['main_tenant', 'tenant', 'user']) &&
+        (!('uplineTenantEmail' in data) || (data.uplineTenantEmail is string && data.uplineTenantEmail.size() <= 320)) &&
+        (!('uplineTenantUid' in data) || (data.uplineTenantUid is string && data.uplineTenantUid.size() <= 128)) &&
+        (!('termsAcceptedAt' in data) || data.termsAcceptedAt == null || data.termsAcceptedAt is number) &&
+        (!('trialStartedAt' in data) || data.trialStartedAt == null || data.trialStartedAt is number) &&
+        (!('trialEndsAt' in data) || data.trialEndsAt == null || (
+          data.trialEndsAt is number &&
+          ('trialStartedAt' in data) &&
+          data.trialStartedAt is number &&
+          data.trialEndsAt >= data.trialStartedAt &&
+          data.trialEndsAt <= data.trialStartedAt + 366 * 86400000
+        ));
+    }
+
+    function isValidTrialClaim(data) {
+      return !('trialEndsAt' in data) || data.trialEndsAt == null || (
+        ('referredByCode' in data) &&
+        data.referredByCode is string &&
+        isValidId(data.referredByCode) &&
+        exists(/databases/$(database)/documents/referralLinks/$(data.referredByCode)) &&
+        (
+          (
+            (!('subscriptionTier' in data) || data.subscriptionTier != 'company') &&
+            ('trialDays' in get(/databases/$(database)/documents/referralLinks/$(data.referredByCode)).data) &&
+            get(/databases/$(database)/documents/referralLinks/$(data.referredByCode)).data.trialDays > 0 &&
+            data.trialEndsAt <= data.trialStartedAt + (get(/databases/$(database)/documents/referralLinks/$(data.referredByCode)).data.trialDays * 86400000) + 60000
+          ) ||
+          (
+            ('subscriptionTier' in data) &&
+            data.subscriptionTier == 'company' &&
+            ('companyTrialDays' in get(/databases/$(database)/documents/referralLinks/$(data.referredByCode)).data) &&
+            get(/databases/$(database)/documents/referralLinks/$(data.referredByCode)).data.companyTrialDays > 0 &&
+            data.trialEndsAt <= data.trialStartedAt + (get(/databases/$(database)/documents/referralLinks/$(data.referredByCode)).data.companyTrialDays * 86400000) + 60000
+          )
+        )
+      );
+    }
+
+    function isValidReferralLinkNumbers(data) {
+      return (!('tenantFee' in data) || (data.tenantFee is number && data.tenantFee >= 0 && data.tenantFee <= 1000000)) &&
+        (!('userFee' in data) || (data.userFee is number && data.userFee >= 0 && data.userFee <= 1000000)) &&
+        (!('companyFee' in data) || (data.companyFee is number && data.companyFee >= 0 && data.companyFee <= 1000000)) &&
+        (!('trialDays' in data) || (data.trialDays is number && data.trialDays >= 0 && data.trialDays <= 365)) &&
+        (!('companyTrialDays' in data) || (data.companyTrialDays is number && data.companyTrialDays >= 0 && data.companyTrialDays <= 365)) &&
+        (!('maxTenantSignups' in data) || (data.maxTenantSignups is number && data.maxTenantSignups >= 0 && data.maxTenantSignups <= 1000000)) &&
+        (!('maxUserSignups' in data) || (data.maxUserSignups is number && data.maxUserSignups >= 0 && data.maxUserSignups <= 1000000)) &&
+        (!('maxCompanySignups' in data) || (data.maxCompanySignups is number && data.maxCompanySignups >= 0 && data.maxCompanySignups <= 1000000)) &&
+        (!('currentTenantSignups' in data) || (data.currentTenantSignups is number && data.currentTenantSignups >= 0 && data.currentTenantSignups <= 1000000)) &&
+        (!('currentUserSignups' in data) || (data.currentUserSignups is number && data.currentUserSignups >= 0 && data.currentUserSignups <= 1000000)) &&
+        (!('currentCompanySignups' in data) || (data.currentCompanySignups is number && data.currentCompanySignups >= 0 && data.currentCompanySignups <= 1000000));
+    }
+
+    function isValidReferralLink(data, code) {
+      return data.keys().hasAll(['code', 'ownerUid', 'ownerTier', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'code',
+          'ownerUid',
+          'ownerTier',
+          'displayName',
+          'tenantFee',
+          'userFee',
+          'companyFee',
+          'trialDays',
+          'companyTrialDays',
+          'maxTenantSignups',
+          'maxUserSignups',
+          'maxCompanySignups',
+          'currentTenantSignups',
+          'currentUserSignups',
+          'currentCompanySignups',
+          'bankName',
+          'bankAccountHolder',
+          'bankAccountNumber',
+          'bankBranchCode',
+          'bankReferenceNote',
+          'approvalHoursEnabled',
+          'approvalHoursStart',
+          'approvalHoursEnd',
+          'approvalWorkingDays',
+          'createdAt',
+          'ownerEmail',
+          'email',
+          'id',
+          'updatedAt'
+        ]) &&
+        data.code is string && data.code == code &&
+        data.ownerUid is string && (data.ownerUid == request.auth.uid || (isMainTenant() && code == 'main-timegig2026')) &&
+        data.ownerTier in ['main_tenant', 'tenant', 'user'] &&
+        (data.ownerTier != 'main_tenant' || isMainTenant()) &&
+        (code != 'main-timegig2026' || isMainTenant()) &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120)) &&
+        (!('bankName' in data) || (data.bankName is string && data.bankName.size() <= 120)) &&
+        (!('bankAccountHolder' in data) || (data.bankAccountHolder is string && data.bankAccountHolder.size() <= 160)) &&
+        (!('bankAccountNumber' in data) || (data.bankAccountNumber is string && data.bankAccountNumber.size() <= 60)) &&
+        (!('bankBranchCode' in data) || (data.bankBranchCode is string && data.bankBranchCode.size() <= 40)) &&
+        (!('bankReferenceNote' in data) || (data.bankReferenceNote is string && data.bankReferenceNote.size() <= 200)) &&
+        (!('approvalHoursEnabled' in data) || data.approvalHoursEnabled is bool) &&
+        (!('approvalHoursStart' in data) || (data.approvalHoursStart is string && data.approvalHoursStart.size() <= 10 && data.approvalHoursStart.matches('^(([01]?[0-9]|2[0-3]):[0-5][0-9])?$'))) &&
+        (!('approvalHoursEnd' in data) || (data.approvalHoursEnd is string && data.approvalHoursEnd.size() <= 10 && data.approvalHoursEnd.matches('^(([01]?[0-9]|2[0-3]):[0-5][0-9])?$'))) &&
+        (!('approvalWorkingDays' in data) || (data.approvalWorkingDays is string && data.approvalWorkingDays.size() <= 40 && data.approvalWorkingDays.matches('^([0-6](,[0-6]){0,6})?$'))) &&
+        (!('createdAt' in data) || data.createdAt is string || data.createdAt is number) &&
+        (!('ownerEmail' in data) || (data.ownerEmail is string && data.ownerEmail.size() <= 320)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 320)) &&
+        (!('id' in data) || (data.id is string && data.id.size() <= 128)) &&
+        isValidReferralLinkNumbers(data) &&
+        data.updatedAt is number;
+    }
+
+    function isValidSubmissionCreate(data, submissionId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'userEmail',
+          'userName',
+          'subType',
+          'status',
+          'submittedAt',
+          'referrerTier',
+          'targetTenantEmail',
+          'targetTenantUid'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'userEmail',
+          'userName',
+          'subType',
+          'feeAmount',
+          'selfie',
+          'idDoc',
+          'popDoc',
+          'status',
+          'submittedAt',
+          'expiresAt',
+          'referrerCode',
+          'referrerUid',
+          'referrerTier',
+          'targetTenantEmail',
+          'targetTenantUid',
+          'routingLabel'
+        ]) &&
+        data.id is string && data.id == submissionId &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.userEmail is string && data.userEmail.size() <= 320 &&
+        data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 160 &&
+        data.subType in ['Tenant Sub (R299.99)', 'User Sub (R29.99)', 'Company Sub (R199.99)'] &&
+        (!('feeAmount' in data) || (data.feeAmount is number && data.feeAmount >= 0 && data.feeAmount <= 1000000)) &&
+        data.status == 'pending' &&
+        data.submittedAt is number &&
+        (!('expiresAt' in data) || data.expiresAt == null) &&
+        (!('selfie' in data) || data.selfie == null || (data.selfie is string && data.selfie.size() <= 900000)) &&
+        (!('idDoc' in data) || isValidDocObject(data.idDoc)) &&
+        (!('popDoc' in data) || isValidDocObject(data.popDoc)) &&
+        (!('referrerCode' in data) || (data.referrerCode is string && data.referrerCode.size() <= 128)) &&
+        (!('referrerUid' in data) || (data.referrerUid is string && data.referrerUid.size() <= 128)) &&
+        (!('routingLabel' in data) || (data.routingLabel is string && data.routingLabel.size() <= 160)) &&
+        data.referrerTier in ['main_tenant', 'tenant', 'user'] &&
+        data.targetTenantEmail is string &&
+        data.targetTenantUid is string &&
+        (
+          // Direct to Main Tenant OR any User Sub referral -> always falls under Main Tenant
+          ((data.referrerTier == 'user' || data.referrerTier == 'main_tenant') &&
+            data.targetTenantEmail == 'timegig2026@gmail.com') ||
+          // Direct referral to a Referral Tenant -> falls under that Referral Tenant
+          (data.referrerTier == 'tenant' &&
+            data.targetTenantUid.size() > 0 &&
+            data.targetTenantUid != request.auth.uid &&
+            data.targetTenantEmail != 'timegig2026@gmail.com')
+        );
+    }
+
+    function isValidSubmissionUpdate(newData, oldData) {
+      return newData.diff(oldData).affectedKeys().hasOnly(['status', 'expiresAt']) &&
+        newData.status in ['approved', 'rejected', 'frozen'] &&
+        (
+          (newData.status == 'approved' && ('expiresAt' in newData) && newData.expiresAt is number) ||
+          ((newData.status == 'rejected' || newData.status == 'frozen') && (!('expiresAt' in newData) || newData.expiresAt == null || newData.expiresAt is number))
+        );
+    }
+
+    function isValidSeeker(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'tier', 'status', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'location',
+          'avatar',
+          'tier',
+          'status',
+          'serviceTitle',
+          'serviceRate',
+          'serviceDescription',
+          'workTrade',
+          'tradeExperience',
+          'tradeReference',
+          'offeringService',
+          'lat',
+          'lng',
+          'updatedAt'
+        ]) &&
+        data.uid is string && data.uid == userId &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 160 &&
+        (!('location' in data) || (data.location is string && data.location.size() <= 300)) &&
+        (!('avatar' in data) || data.avatar == null || (data.avatar is string && data.avatar.size() <= 450000)) &&
+        data.tier in ['tenant', 'user', 'company', 'seeker'] &&
+        data.status in ['inactive', 'active', 'pending', 'approved', 'rejected', 'frozen'] &&
+        (!('serviceTitle' in data) || (data.serviceTitle is string && data.serviceTitle.size() <= 120)) &&
+        (!('serviceRate' in data) || (data.serviceRate is string && data.serviceRate.size() <= 60)) &&
+        (!('serviceDescription' in data) || (data.serviceDescription is string && data.serviceDescription.size() <= 400)) &&
+        (!('workTrade' in data) || (data.workTrade is string && data.workTrade.size() <= 120)) &&
+        (!('tradeExperience' in data) || (data.tradeExperience is string && data.tradeExperience.size() <= 500)) &&
+        (!('tradeReference' in data) || (data.tradeReference is string && data.tradeReference.size() <= 300)) &&
+        (!('offeringService' in data) || data.offeringService is bool) &&
+        (!('lat' in data) || data.lat == null || (data.lat is number && data.lat >= -90 && data.lat <= 90)) &&
+        (!('lng' in data) || data.lng == null || (data.lng is number && data.lng >= -180 && data.lng <= 180)) &&
+        data.updatedAt is number;
+    }
+
+    function isValidGig(data, gigId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'ownerName',
+          'title',
+          'description',
+          'pay',
+          'lat',
+          'lng',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'ownerName',
+          'ownerAvatar',
+          'title',
+          'description',
+          'pay',
+          'category',
+          'lat',
+          'lng',
+          'locationName',
+          'gigDate',
+          'gigTime',
+          'requireIdDoc',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == gigId &&
+        data.ownerId is string && data.ownerId == request.auth.uid &&
+        data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 160 &&
+        (!('ownerAvatar' in data) || data.ownerAvatar == null || (data.ownerAvatar is string && data.ownerAvatar.size() <= 450000)) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 1000 &&
+        data.pay is string && data.pay.size() >= 1 && data.pay.size() <= 60 &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 60)) &&
+        data.lat is number && data.lat >= -90 && data.lat <= 90 &&
+        data.lng is number && data.lng >= -180 && data.lng <= 180 &&
+        (!('locationName' in data) || (data.locationName is string && data.locationName.size() <= 300)) &&
+        (!('gigDate' in data) || (data.gigDate is string && data.gigDate.size() <= 40)) &&
+        (!('gigTime' in data) || (data.gigTime is string && data.gigTime.size() <= 40)) &&
+        (!('requireIdDoc' in data) || data.requireIdDoc is bool) &&
+        data.createdAt is number &&
+        data.updatedAt is number;
+    }
+
+    function isValidCompany(data, companyId) {
+      return data.keys().hasAll([
+          'id',
+          'ownerId',
+          'ownerName',
+          'name',
+          'description',
+          'lat',
+          'lng',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'ownerId',
+          'ownerName',
+          'ownerAvatar',
+          'logoUrl',
+          'backcoverUrl',
+          'name',
+          'category',
+          'description',
+          'openTimes',
+          'contact',
+          'email',
+          'website',
+          'acceptsReservations',
+          'lat',
+          'lng',
+          'locationName',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.id is string && data.id == companyId &&
+        data.ownerId is string && data.ownerId == request.auth.uid &&
+        data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 160 &&
+        (!('ownerAvatar' in data) || data.ownerAvatar == null || (data.ownerAvatar is string && data.ownerAvatar.size() <= 450000)) &&
+        (!('logoUrl' in data) || data.logoUrl == null || (data.logoUrl is string && data.logoUrl.size() <= 450000)) &&
+        (!('backcoverUrl' in data) || data.backcoverUrl == null || (data.backcoverUrl is string && data.backcoverUrl.size() <= 550000)) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        (!('category' in data) || (data.category is string && data.category.size() <= 60)) &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 1000 &&
+        (!('openTimes' in data) || (data.openTimes is string && data.openTimes.size() <= 200)) &&
+        (!('contact' in data) || (data.contact is string && data.contact.size() <= 160)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+        (!('website' in data) || (data.website is string && data.website.size() <= 300)) &&
+        (!('acceptsReservations' in data) || data.acceptsReservations is bool) &&
+        data.lat is number && data.lat >= -90 && data.lat <= 90 &&
+        data.lng is number && data.lng >= -180 && data.lng <= 180 &&
+        (!('locationName' in data) || (data.locationName is string && data.locationName.size() <= 300)) &&
+        data.createdAt is number &&
+        data.updatedAt is number;
+    }
+
+    function isValidCompanyReservationCreate(data, reservationId) {
+      return data.keys().hasAll([
+          'id',
+          'companyId',
+          'companyName',
+          'companyOwnerId',
+          'userId',
+          'userName',
+          'userEmail',
+          'reservationDate',
+          'reservationTime',
+          'status',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'companyId',
+          'companyName',
+          'companyOwnerId',
+          'userId',
+          'userName',
+          'userEmail',
+          'reservationDate',
+          'reservationTime',
+          'guests',
+          'contactPhone',
+          'notes',
+          'status',
+          'createdAt'
+        ]) &&
+        data.id is string && data.id == reservationId &&
+        data.companyId is string && isValidId(data.companyId) &&
+        data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 120 &&
+        data.companyOwnerId is string && isValidId(data.companyOwnerId) &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 160 &&
+        data.userEmail is string && data.userEmail.size() <= 320 &&
+        data.reservationDate is string && data.reservationDate.size() >= 1 && data.reservationDate.size() <= 40 &&
+        data.reservationTime is string && data.reservationTime.size() >= 1 && data.reservationTime.size() <= 40 &&
+        (!('guests' in data) || (data.guests is string && data.guests.size() <= 40)) &&
+        (!('contactPhone' in data) || (data.contactPhone is string && data.contactPhone.size() <= 80)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 400)) &&
+        data.status == 'pending' &&
+        data.createdAt is number;
+    }
+
+    function isValidCompanyReservationUpdate(newData, oldData) {
+      return newData.id == oldData.id &&
+        newData.companyId == oldData.companyId &&
+        newData.companyOwnerId == oldData.companyOwnerId &&
+        newData.userId == oldData.userId &&
+        newData.createdAt == oldData.createdAt &&
+        newData.diff(oldData).affectedKeys().hasOnly(['status']) &&
+        oldData.status in ['pending', 'confirmed'] &&
+        (
+          (
+            request.auth.uid == oldData.companyOwnerId &&
+            newData.status in ['confirmed', 'declined', 'cancelled']
+          ) ||
+          (
+            request.auth.uid == oldData.userId &&
+            newData.status == 'cancelled'
+          )
+        );
+    }
+
+    function isValidGigEngagement(data, gigId) {
+      return data.keys().hasAll(['gigId', 'userId', 'createdAt']) &&
+        data.keys().hasOnly(['gigId', 'userId', 'createdAt']) &&
+        data.gigId is string && data.gigId == gigId &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.createdAt is number;
+    }
+
+    function isValidHireMessage(data, hireId, messageId) {
+      return data.keys().hasAll([
+          'id',
+          'hireId',
+          'userId',
+          'seekerId',
+          'senderId',
+          'senderName',
+          'text',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'hireId',
+          'userId',
+          'seekerId',
+          'senderId',
+          'senderName',
+          'senderAvatar',
+          'text',
+          'createdAt'
+        ]) &&
+        data.id is string && data.id == messageId &&
+        data.hireId is string && data.hireId == hireId &&
+        data.userId is string && isValidId(data.userId) &&
+        data.seekerId is string && isValidId(data.seekerId) &&
+        data.senderId is string && data.senderId == request.auth.uid &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 160 &&
+        (!('senderAvatar' in data) || data.senderAvatar == null || (data.senderAvatar is string && data.senderAvatar.size() <= 450000)) &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 1000 &&
+        data.createdAt is number;
+    }
+
+    function isValidHireCreate(data, hireId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'userName',
+          'seekerId',
+          'seekerName',
+          'serviceTitle',
+          'seekerLat',
+          'seekerLng',
+          'destLat',
+          'destLng',
+          'destAddress',
+          'status',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'userName',
+          'seekerId',
+          'seekerName',
+          'serviceTitle',
+          'serviceRate',
+          'seekerLat',
+          'seekerLng',
+          'destLat',
+          'destLng',
+          'destAddress',
+          'status',
+          'rating',
+          'ratingComment',
+          'cancelReason',
+          'cancelledBy',
+          'createdAt',
+          'acceptedAt',
+          'completedAt',
+          'cancelledAt'
+        ]) &&
+        data.id is string && data.id == hireId &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 160 &&
+        data.seekerId is string && isValidId(data.seekerId) && data.seekerId != request.auth.uid &&
+        data.seekerName is string && data.seekerName.size() >= 1 && data.seekerName.size() <= 160 &&
+        data.serviceTitle is string && data.serviceTitle.size() >= 1 && data.serviceTitle.size() <= 120 &&
+        (!('serviceRate' in data) || (data.serviceRate is string && data.serviceRate.size() <= 60)) &&
+        data.seekerLat is number && data.seekerLat >= -90 && data.seekerLat <= 90 &&
+        data.seekerLng is number && data.seekerLng >= -180 && data.seekerLng <= 180 &&
+        data.destLat is number && data.destLat >= -90 && data.destLat <= 90 &&
+        data.destLng is number && data.destLng >= -180 && data.destLng <= 180 &&
+        data.destAddress is string && data.destAddress.size() >= 1 && data.destAddress.size() <= 300 &&
+        data.status == 'pending' &&
+        (!('rating' in data) || data.rating == null) &&
+        (!('cancelledBy' in data) || data.cancelledBy == null) &&
+        data.createdAt is number;
+    }
+
+    function isValidHireUpdate(newData, oldData) {
+      return newData.id == oldData.id &&
+        newData.userId == oldData.userId &&
+        newData.seekerId == oldData.seekerId &&
+        newData.createdAt == oldData.createdAt &&
+        oldData.status in ['pending', 'accepted'] &&
+        (
+          // Branch 1: Seeker accepts pending hire
+          (
+            request.auth.uid == oldData.seekerId &&
+            oldData.status == 'pending' &&
+            newData.status == 'accepted' &&
+            newData.diff(oldData).affectedKeys().hasOnly(['status', 'acceptedAt', 'seekerLat', 'seekerLng']) &&
+            newData.acceptedAt is number &&
+            newData.seekerLat is number && newData.seekerLat >= -90 && newData.seekerLat <= 90 &&
+            newData.seekerLng is number && newData.seekerLng >= -180 && newData.seekerLng <= 180
+          ) ||
+          // Branch 2: Seeker updates live coordinates during accepted gig
+          (
+            request.auth.uid == oldData.seekerId &&
+            oldData.status == 'accepted' &&
+            newData.status == 'accepted' &&
+            newData.diff(oldData).affectedKeys().hasOnly(['seekerLat', 'seekerLng']) &&
+            newData.seekerLat is number && newData.seekerLat >= -90 && newData.seekerLat <= 90 &&
+            newData.seekerLng is number && newData.seekerLng >= -180 && newData.seekerLng <= 180
+          ) ||
+          // Branch 3: Only Hiring User can complete accepted gig and assign star rating (1-5)
+          (
+            request.auth.uid == oldData.userId &&
+            oldData.status == 'accepted' &&
+            newData.status == 'completed' &&
+            newData.diff(oldData).affectedKeys().hasOnly(['status', 'rating', 'ratingComment', 'completedAt']) &&
+            newData.rating is number && newData.rating >= 1 && newData.rating <= 5 &&
+            newData.completedAt is number &&
+            (!('ratingComment' in newData) || (newData.ratingComment is string && newData.ratingComment.size() <= 300))
+          ) ||
+          // Branch 4: Either User or Seeker can cancel pending/accepted gig with mandatory reason
+          (
+            (oldData.status == 'pending' || oldData.status == 'accepted') &&
+            newData.status == 'cancelled' &&
+            newData.diff(oldData).affectedKeys().hasOnly(['status', 'cancelReason', 'cancelledBy', 'cancelledAt']) &&
+            newData.cancelReason is string && newData.cancelReason.size() >= 1 && newData.cancelReason.size() <= 300 &&
+            newData.cancelledAt is number &&
+            (
+              (request.auth.uid == oldData.userId && newData.cancelledBy == 'user') ||
+              (request.auth.uid == oldData.seekerId && newData.cancelledBy == 'seeker')
+            )
+          )
+        );
+    }
+
+    function isValidSeekerRating(data, hireId) {
+      return data.keys().hasAll(['hireId', 'seekerId', 'userId', 'rating', 'createdAt']) &&
+        data.keys().hasOnly(['hireId', 'seekerId', 'userId', 'rating', 'createdAt']) &&
+        data.hireId is string && data.hireId == hireId &&
+        data.seekerId is string && isValidId(data.seekerId) &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+        data.createdAt is number;
+    }
+
+    function isValidGigApplication(data, appId) {
+      return data.keys().hasAll([
+          'id',
+          'gigId',
+          'gigTitle',
+          'gigOwnerId',
+          'applicantId',
+          'applicantName',
+          'message',
+          'status',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'gigId',
+          'gigTitle',
+          'gigOwnerId',
+          'applicantId',
+          'applicantName',
+          'applicantAvatar',
+          'workTrade',
+          'tradeExperience',
+          'tradeReference',
+          'idDoc',
+          'message',
+          'status',
+          'createdAt'
+        ]) &&
+        data.id is string && data.id == appId &&
+        data.gigId is string && isValidId(data.gigId) &&
+        data.gigTitle is string && data.gigTitle.size() >= 1 && data.gigTitle.size() <= 120 &&
+        data.gigOwnerId is string && isValidId(data.gigOwnerId) && data.gigOwnerId != request.auth.uid &&
+        data.applicantId is string && data.applicantId == request.auth.uid &&
+        data.applicantName is string && data.applicantName.size() >= 1 && data.applicantName.size() <= 160 &&
+        (!('applicantAvatar' in data) || data.applicantAvatar == null || (data.applicantAvatar is string && data.applicantAvatar.size() <= 450000)) &&
+        (!('workTrade' in data) || (data.workTrade is string && data.workTrade.size() <= 120)) &&
+        (!('tradeExperience' in data) || (data.tradeExperience is string && data.tradeExperience.size() <= 500)) &&
+        (!('tradeReference' in data) || (data.tradeReference is string && data.tradeReference.size() <= 300)) &&
+        (!('idDoc' in data) || isValidDocObject(data.idDoc)) &&
+        data.message is string && data.message.size() <= 400 &&
+        data.status == 'pending' &&
+        data.createdAt is number;
+    }
+
+    function isValidFeedback(data, feedbackId) {
+      return data.keys().hasAll([
+          'id',
+          'userId',
+          'userName',
+          'userEmail',
+          'userTier',
+          'message',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id',
+          'userId',
+          'userName',
+          'userEmail',
+          'userTier',
+          'userAvatar',
+          'userLocation',
+          'userReferralCode',
+          'userStatus',
+          'message',
+          'createdAt',
+          'readByMainTenant',
+          'readAt',
+          'replyMessage',
+          'repliedAt',
+          'repliedByUid',
+          'repliedByName',
+          'repliedByAvatar'
+        ]) &&
+        data.id is string && data.id == feedbackId &&
+        data.userId is string && isValidId(data.userId) &&
+        data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 160 &&
+        data.userEmail is string && data.userEmail.size() <= 320 &&
+        data.userTier in ['main_tenant', 'tenant', 'user', 'company', 'none'] &&
+        (!('userAvatar' in data) || data.userAvatar == null || (data.userAvatar is string && data.userAvatar.size() <= 450000)) &&
+        (!('userLocation' in data) || (data.userLocation is string && data.userLocation.size() <= 300)) &&
+        (!('userReferralCode' in data) || (data.userReferralCode is string && data.userReferralCode.size() <= 128)) &&
+        (!('userStatus' in data) || (data.userStatus is string && data.userStatus.size() <= 40)) &&
+        data.message is string && data.message.size() >= 1 && data.message.size() <= 1000 &&
+        data.createdAt is number &&
+        (!('readByMainTenant' in data) || data.readByMainTenant is bool) &&
+        (!('readAt' in data) || data.readAt == null || data.readAt is number) &&
+        (!('replyMessage' in data) || (data.replyMessage is string && data.replyMessage.size() >= 1 && data.replyMessage.size() <= 1000)) &&
+        (!('repliedAt' in data) || data.repliedAt == null || data.repliedAt is number) &&
+        (!('repliedByUid' in data) || (data.repliedByUid is string && data.repliedByUid.size() <= 128)) &&
+        (!('repliedByName' in data) || (data.repliedByName is string && data.repliedByName.size() <= 160)) &&
+        (!('repliedByAvatar' in data) || data.repliedByAvatar == null || (data.repliedByAvatar is string && data.repliedByAvatar.size() <= 450000));
+    }
+
+    // ===============================================================
+    // Default Deny
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Collections
+    // ===============================================================
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isMainTenant();
+      allow list: if isMainTenant();
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserPayload(request.resource.data, userId) &&
+        isValidTrialClaim(request.resource.data);
+      allow update: if isOwner(userId) &&
+        isValidUserPayload(request.resource.data, userId) &&
+        request.resource.data.uid == resource.data.uid &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+        (!('trialStartedAt' in resource.data) || request.resource.data.trialStartedAt == resource.data.trialStartedAt) &&
+        (!('trialEndsAt' in resource.data) || request.resource.data.trialEndsAt == resource.data.trialEndsAt) &&
+        isValidTrialClaim(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /referralLinks/{code} {
+      allow get: if isSignedIn() && isValidId(code);
+      allow list: if isMainTenant();
+      allow create: if isSignedIn() && isValidId(code) && isValidReferralLink(request.resource.data, code) && (
+        isMainTenant() || (
+          (!('maxTenantSignups' in request.resource.data) || request.resource.data.maxTenantSignups == 0) &&
+          (!('maxUserSignups' in request.resource.data) || request.resource.data.maxUserSignups == 0) &&
+          (!('maxCompanySignups' in request.resource.data) || request.resource.data.maxCompanySignups == 10)
+        )
+      );
+      allow update: if isSignedIn() && isValidId(code) && (
+        (
+          (resource.data.ownerUid == request.auth.uid || (isMainTenant() && (code == 'main-timegig2026' || resource.data.ownerTier == 'main_tenant'))) &&
+          isValidReferralLink(request.resource.data, code) &&
+          (
+            isMainTenant() ||
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['maxTenantSignups', 'maxUserSignups', 'maxCompanySignups'])
+          ) &&
+          (
+            isMainTenant() ||
+            request.resource.data.ownerTier == 'tenant' ||
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'tenantFee',
+              'userFee',
+              'companyFee',
+              'trialDays',
+              'companyTrialDays',
+              'bankName',
+              'bankAccountHolder',
+              'bankAccountNumber',
+              'bankBranchCode',
+              'bankReferenceNote',
+              'approvalHoursEnabled',
+              'approvalHoursStart',
+              'approvalHoursEnd',
+              'approvalWorkingDays'
+            ])
+          )
+        ) ||
+        (isMainTenant() &&
+          resource.data.ownerTier == 'tenant' &&
+          request.resource.data.ownerUid == resource.data.ownerUid &&
+          request.resource.data.code == resource.data.code &&
+          request.resource.data.ownerTier == resource.data.ownerTier &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['maxTenantSignups', 'maxUserSignups', 'maxCompanySignups', 'updatedAt']) &&
+          isValidReferralLinkNumbers(request.resource.data) &&
+          request.resource.data.updatedAt is number)
+      );
+      allow delete: if false;
+    }
+
+    match /submissions/{submissionId} {
+      allow get: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.targetTenantUid == request.auth.uid ||
+        (isMainTenant() && resource.data.targetTenantEmail == 'timegig2026@gmail.com')
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.targetTenantUid == request.auth.uid ||
+        (isMainTenant() && resource.data.targetTenantEmail == 'timegig2026@gmail.com')
+      );
+      allow create: if isSignedIn() && isValidId(submissionId) && isValidSubmissionCreate(request.resource.data, submissionId);
+      allow update: if isSignedIn() && (
+        resource.data.targetTenantUid == request.auth.uid ||
+        (isMainTenant() && resource.data.targetTenantEmail == 'timegig2026@gmail.com')
+      ) && isValidSubmissionUpdate(request.resource.data, resource.data);
+      allow delete: if false;
+    }
+
+    match /seekers/{userId} {
+      allow get, list: if isSignedIn();
+      allow create, update: if isOwner(userId) && isValidId(userId) && isValidSeeker(request.resource.data, userId);
+      allow delete: if false;
+    }
+
+    match /gigs/{gigId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(gigId) && isValidGig(request.resource.data, gigId);
+      allow update: if isSignedIn() && isValidId(gigId) &&
+        resource.data.ownerId == request.auth.uid &&
+        isValidGig(request.resource.data, gigId) &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isSignedIn() && isValidId(gigId) && resource.data.ownerId == request.auth.uid;
+
+      match /views/{viewerId} {
+        allow get, list: if isSignedIn();
+        allow create, update: if isSignedIn() &&
+          isValidId(gigId) &&
+          isValidId(viewerId) &&
+          viewerId == request.auth.uid &&
+          isValidGigEngagement(request.resource.data, gigId) &&
+          exists(/databases/$(database)/documents/gigs/$(gigId));
+        allow delete: if false;
+      }
+
+      match /interests/{userId} {
+        allow get, list: if isSignedIn();
+        allow create: if isSignedIn() &&
+          isValidId(gigId) &&
+          isValidId(userId) &&
+          userId == request.auth.uid &&
+          isValidGigEngagement(request.resource.data, gigId) &&
+          exists(/databases/$(database)/documents/gigs/$(gigId));
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(gigId) && isValidId(userId) && userId == request.auth.uid;
+      }
+    }
+
+    match /companies/{companyId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(companyId) && isValidCompany(request.resource.data, companyId);
+      allow update: if isSignedIn() && isValidId(companyId) &&
+        resource.data.ownerId == request.auth.uid &&
+        isValidCompany(request.resource.data, companyId) &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isSignedIn() && isValidId(companyId) && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /companyReservations/{reservationId} {
+      allow get: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.companyOwnerId == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.companyOwnerId == request.auth.uid
+      );
+      allow create: if isSignedIn() &&
+        isValidId(reservationId) &&
+        isValidCompanyReservationCreate(request.resource.data, reservationId) &&
+        exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) &&
+        get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.ownerId == request.resource.data.companyOwnerId;
+      allow update: if isSignedIn() &&
+        isValidId(reservationId) &&
+        isValidCompanyReservationUpdate(request.resource.data, resource.data);
+      allow delete: if false;
+    }
+
+    match /hires/{hireId} {
+      allow get: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.seekerId == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        resource.data.seekerId == request.auth.uid
+      );
+      allow create: if isSignedIn() && isValidId(hireId) && isValidHireCreate(request.resource.data, hireId);
+      allow update: if isSignedIn() && isValidId(hireId) && isValidHireUpdate(request.resource.data, resource.data);
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow get: if isSignedIn() && (
+          resource.data.userId == request.auth.uid ||
+          resource.data.seekerId == request.auth.uid
+        );
+        allow list: if isSignedIn() && (
+          resource.data.userId == request.auth.uid ||
+          resource.data.seekerId == request.auth.uid
+        );
+        allow create: if isSignedIn() &&
+          isValidId(hireId) &&
+          isValidId(messageId) &&
+          isValidHireMessage(request.resource.data, hireId, messageId) &&
+          exists(/databases/$(database)/documents/hires/$(hireId)) &&
+          get(/databases/$(database)/documents/hires/$(hireId)).data.status == 'accepted' &&
+          (
+            request.auth.uid == get(/databases/$(database)/documents/hires/$(hireId)).data.userId ||
+            request.auth.uid == get(/databases/$(database)/documents/hires/$(hireId)).data.seekerId
+          ) &&
+          request.resource.data.userId == get(/databases/$(database)/documents/hires/$(hireId)).data.userId &&
+          request.resource.data.seekerId == get(/databases/$(database)/documents/hires/$(hireId)).data.seekerId;
+        allow update, delete: if false;
+      }
+    }
+
+    match /seekerRatings/{hireId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() &&
+        isValidId(hireId) &&
+        isValidSeekerRating(request.resource.data, hireId) &&
+        exists(/databases/$(database)/documents/hires/$(hireId)) &&
+        get(/databases/$(database)/documents/hires/$(hireId)).data.userId == request.auth.uid &&
+        get(/databases/$(database)/documents/hires/$(hireId)).data.seekerId == request.resource.data.seekerId &&
+        get(/databases/$(database)/documents/hires/$(hireId)).data.status == 'completed';
+      allow update, delete: if false;
+    }
+
+    match /gigApplications/{appId} {
+      allow get: if isSignedIn() && (
+        resource.data.applicantId == request.auth.uid ||
+        resource.data.gigOwnerId == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        resource.data.applicantId == request.auth.uid ||
+        resource.data.gigOwnerId == request.auth.uid
+      );
+      allow create: if isSignedIn() &&
+        !isMainTenant() &&
+        isValidId(appId) &&
+        isValidGigApplication(request.resource.data, appId) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.subscriptionTier in ['user', 'company'] &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.subscriptionStatus != 'frozen' &&
+        exists(/databases/$(database)/documents/gigs/$(request.resource.data.gigId)) &&
+        get(/databases/$(database)/documents/gigs/$(request.resource.data.gigId)).data.ownerId == request.resource.data.gigOwnerId &&
+        (!('requireIdDoc' in get(/databases/$(database)/documents/gigs/$(request.resource.data.gigId)).data) ||
+          get(/databases/$(database)/documents/gigs/$(request.resource.data.gigId)).data.requireIdDoc == false ||
+          ('idDoc' in request.resource.data && request.resource.data.idDoc != null && request.resource.data.idDoc.url.size() > 0));
+      allow update: if isSignedIn() &&
+        isValidId(appId) &&
+        resource.data.gigOwnerId == request.auth.uid &&
+        resource.data.status == 'pending' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+        request.resource.data.status in ['accepted', 'rejected'] &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.gigId == resource.data.gigId &&
+        request.resource.data.applicantId == resource.data.applicantId &&
+        request.resource.data.gigOwnerId == resource.data.gigOwnerId &&
+        request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /feedback/{feedbackId} {
+      allow get: if isMainTenant() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isMainTenant() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() &&
+        isValidId(feedbackId) &&
+        isValidFeedback(request.resource.data, feedbackId) &&
+        request.resource.data.userId == request.auth.uid &&
+        (!('readByMainTenant' in request.resource.data) || request.resource.data.readByMainTenant == false) &&
+        !('replyMessage' in request.resource.data) &&
+        !('repliedAt' in request.resource.data) &&
+        !('repliedByUid' in request.resource.data);
+      allow update: if isMainTenant() &&
+        isValidId(feedbackId) &&
+        isValidFeedback(request.resource.data, feedbackId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'readByMainTenant',
+          'readAt',
+          'replyMessage',
+          'repliedAt',
+          'repliedByUid',
+          'repliedByName',
+          'repliedByAvatar'
+        ]) &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.message == resource.data.message &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        (!('repliedByUid' in request.resource.data) || request.resource.data.repliedByUid == request.auth.uid);
+      allow delete: if false;
+    }
+  }
+}
